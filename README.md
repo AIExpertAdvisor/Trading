@@ -36,3 +36,36 @@ TheAlgoTrdr is an AI Trading Agency that designs and delivers professional, perf
 ---
 
 ## Repository Structure
+
+```
+/
+├── tradingview/
+│   ├── indicators/
+│   └── strategies/
+├── metatrader5/
+│   ├── indicators/
+│   └── experts/
+├── python/
+│   ├── backtests/
+│   └── ai/
+├── web/
+└── docs/
+```
+
+---
+
+## Delivery Methods
+
+- Direct file delivery (`.pine`, `.mq5`, `.ex5`)
+- Private TradingView / MetaTrader 5 script publishing
+- Custom client portal access
+
+---
+
+## Powered By Algorithmic Trading
+
+All systems are built using advanced algorithmic development, combining cutting-edge technology with deep trading domain knowledge to deliver faster, smarter, and more robust trading tools.
+
+---
+
+*For enquiries, contact AIExpertAdvisor.*
