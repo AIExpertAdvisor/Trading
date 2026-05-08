@@ -32,7 +32,7 @@ When helping with this repo, prefer outputs that include:
 - Known limitations.
 - Safety and risk disclaimers.
 
-  ## Repository Structure
+## Repository Structure
 
 ```text
 /
