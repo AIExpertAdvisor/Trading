@@ -1,0 +1,272 @@
+//@version=6
+// =============================================================================
+// Adaptive Regime Compass (ARC) — by TheAlgoTrdr
+// -----------------------------------------------------------------------------
+// Continuously classifies the market into one of 5 regimes and shows directional
+// bias, helping traders apply the right strategy to the right conditions.
+//
+// Regimes:
+//   • Strong Trend Up
+//   • Strong Trend Down
+//   • Range-Bound
+//   • Volatility Expansion
+//   • Dead / Low Activity
+//
+// Built for Pine Script v6 — works on all markets and all timeframes (M15+).
+// =============================================================================
+
+indicator("Adaptive Regime Compass [TheAlgoTrdr]", "ARC", overlay = true,
+     max_boxes_count = 50, max_lines_count = 50, max_labels_count = 50)
+
+// =============================================================================
+// INPUTS
+// =============================================================================
+
+// — General —
+sensitivity = input.string("Balanced", "Sensitivity",
+     options = ["Conservative", "Balanced", "Aggressive"], group = "General",
+     tooltip = "Conservative = fewer regime calls, higher conviction. Aggressive = more responsive, more signals.")
+confirmBars = input.int(3, "Regime Confirmation Bars", minval = 1, maxval = 10,
+     group = "General",
+     tooltip = "Number of consecutive bars required before flipping regimes. Higher = fewer false flips.")
+
+// — Classification lookbacks —
+trendLookback = input.int(50, "Trend Lookback", minval = 10, group = "Classification")
+rangeLookback = input.int(20, "Range Lookback", minval = 5,  group = "Classification")
+volLookback   = input.int(100, "Volatility Percentile Lookback", minval = 20, group = "Classification")
+
+// — Visual toggles —
+showBackground = input.bool(true, "Background Tint",        group = "Visuals")
+showPanel      = input.bool(true, "Info Panel",             group = "Visuals")
+showRangeBoxes = input.bool(true, "Range Boxes (range regime only)", group = "Visuals")
+panelLocation  = input.string("Top Right", "Panel Location",
+     options = ["Top Right", "Top Left", "Bottom Right", "Bottom Left"], group = "Visuals")
+
+// — Alert toggles —
+alertOnAnyChange = input.bool(true,  "Alert: Any regime change",     group = "Alerts")
+alertOnTrendUp   = input.bool(false, "Alert: Strong Trend Up",       group = "Alerts")
+alertOnTrendDown = input.bool(false, "Alert: Strong Trend Down",     group = "Alerts")
+alertOnExpansion = input.bool(false, "Alert: Volatility Expansion",  group = "Alerts")
+alertOnDead      = input.bool(false, "Alert: Dead / Low Activity",   group = "Alerts")
+
+// =============================================================================
+// SENSITIVITY-DRIVEN THRESHOLDS
+// =============================================================================
+// Each preset shifts the thresholds to make the engine more or less reactive.
+adxThreshold      = sensitivity == "Conservative" ? 30.0 : sensitivity == "Aggressive" ? 18.0 : 25.0
+volExpandPct      = sensitivity == "Conservative" ? 90.0 : sensitivity == "Aggressive" ? 70.0 : 80.0
+volDeadPct        = sensitivity == "Conservative" ? 15.0 : sensitivity == "Aggressive" ? 25.0 : 20.0
+rangePctThreshold = sensitivity == "Conservative" ? 75.0 : sensitivity == "Aggressive" ? 60.0 : 70.0
+
+// =============================================================================
+// FACTOR 1 — TREND STRENGTH (ADX + EMA slope confirmation)
+// =============================================================================
+[diPlus, diMinus, adxValue] = ta.dmi(14, 14)
+trendStrong = adxValue >= adxThreshold
+trendBiasUp = diPlus > diMinus
+
+emaFast = ta.ema(close, 21)
+emaSlow = ta.ema(close, 50)
+emaSlopeUp   = emaFast > emaSlow and emaFast > emaFast[5]
+emaSlopeDown = emaFast < emaSlow and emaFast < emaFast[5]
+
+isTrendUp   = trendStrong and trendBiasUp     and emaSlopeUp
+isTrendDown = trendStrong and not trendBiasUp and emaSlopeDown
+
+// =============================================================================
+// FACTOR 2 — VOLATILITY STATE (ATR percentile rank vs lookback)
+// =============================================================================
+atr14 = ta.atr(14)
+atrPct = ta.percentrank(atr14, volLookback)
+isExpansion = atrPct >= volExpandPct
+isVolDead   = atrPct <= volDeadPct
+
+// =============================================================================
+// FACTOR 3 — RANGE BEHAVIOUR (% of recent bars contained + BBW context)
+// =============================================================================
+rangeHigh  = ta.highest(high, rangeLookback)
+rangeLow   = ta.lowest(low,  rangeLookback)
+rangeMid   = (rangeHigh + rangeLow) / 2.0
+rangeWidth = rangeHigh - rangeLow
+
+// Count how many of the recent bars closed inside the established range.
+inRangeCount = 0
+for i = 0 to rangeLookback - 1
+    if close[i] <= rangeHigh and close[i] >= rangeLow
+        inRangeCount += 1
+inRangePct = (inRangeCount / rangeLookback) * 100.0
+
+// Bollinger Band Width as confirmation — low BBW supports a ranging read.
+[bbMid, bbUp, bbLo] = ta.bb(close, 20, 2.0)
+bbWidth    = (bbUp - bbLo) / bbMid * 100.0
+bbWidthPct = ta.percentrank(bbWidth, volLookback)
+
+isRanging = inRangePct >= rangePctThreshold and bbWidthPct < 60.0
+
+// =============================================================================
+// FACTOR 4 — ACTIVITY LEVEL (FX-safe ATR-based compression + drift fallback)
+// =============================================================================
+// Avoids relying on volume since FX tick volume is unreliable.
+// Dead = low ATR percentile AND very little net directional drift over the lookback.
+priceDrift   = math.abs(close - close[rangeLookback]) / atr14
+isDead       = isVolDead and priceDrift < 1.0
+
+// =============================================================================
+// RAW REGIME DECISION (priority order)
+// =============================================================================
+// 0 = Dead, 1 = Range, 2 = Trend Up, 3 = Trend Down, 4 = Expansion
+var int prevConfirmed = 1
+rawRegime = isDead       ? 0 :
+            isExpansion  ? 4 :
+            isTrendUp    ? 2 :
+            isTrendDown  ? 3 :
+            isRanging    ? 1 : prevConfirmed
+
+// =============================================================================
+// REGIME CONFIRMATION LOGIC
+// -----------------------------------------------------------------------------
+// Require N consecutive bars meeting a new regime before flipping.
+// Prevents flip-flopping near threshold boundaries.
+// =============================================================================
+var int confirmedRegime = 1
+var int candidateRegime = 1
+var int candidateBars   = 0
+var int regimeStartBar  = 0
+
+if rawRegime == confirmedRegime
+    candidateRegime := confirmedRegime
+    candidateBars   := 0
+else
+    if rawRegime == candidateRegime
+        candidateBars += 1
+    else
+        candidateRegime := rawRegime
+        candidateBars   := 1
+
+    if candidateBars >= confirmBars
+        confirmedRegime := candidateRegime
+        regimeStartBar  := bar_index
+        candidateBars   := 0
+
+prevConfirmed := confirmedRegime
+regimeDuration = bar_index - regimeStartBar
+
+// =============================================================================
+// REGIME STRENGTH (Weak / Moderate / Strong)
+// -----------------------------------------------------------------------------
+// Honest 3-tier label based on how comfortably the conditions are met.
+// =============================================================================
+strength = "Moderate"
+if confirmedRegime == 2 or confirmedRegime == 3
+    strength := adxValue >= adxThreshold + 10 ? "Strong" :
+                adxValue >= adxThreshold + 3  ? "Moderate" : "Weak"
+else if confirmedRegime == 4
+    strength := atrPct >= 95 ? "Strong" : atrPct >= 85 ? "Moderate" : "Weak"
+else if confirmedRegime == 1
+    strength := inRangePct >= 90 ? "Strong" : inRangePct >= 80 ? "Moderate" : "Weak"
+else if confirmedRegime == 0
+    strength := atrPct <= 5 ? "Strong" : atrPct <= 12 ? "Moderate" : "Weak"
+
+// =============================================================================
+// REGIME LABELS, COLOURS, AND BIAS
+// =============================================================================
+regimeName = confirmedRegime == 0 ? "Dead / Low Activity" :
+             confirmedRegime == 1 ? "Range-Bound" :
+             confirmedRegime == 2 ? "Strong Trend Up" :
+             confirmedRegime == 3 ? "Strong Trend Down" :
+             confirmedRegime == 4 ? "Volatility Expansion" : "Unknown"
+
+regimeBias = confirmedRegime == 2 ? "Long Bias" :
+             confirmedRegime == 3 ? "Short Bias" :
+             confirmedRegime == 1 ? "Neutral (fade extremes)" :
+             confirmedRegime == 4 ? "Direction Pending" :
+             confirmedRegime == 0 ? "Stand Aside" : "—"
+
+regimeApproach = confirmedRegime == 2 ? "Buy pullbacks, avoid shorts" :
+                 confirmedRegime == 3 ? "Sell rallies, avoid longs" :
+                 confirmedRegime == 1 ? "Trade boundaries, fade extremes" :
+                 confirmedRegime == 4 ? "Breakout plays or wait for trend" :
+                 confirmedRegime == 0 ? "Do not trade" : "—"
+
+regimeColor = confirmedRegime == 0 ? color.new(color.gray,   85) :
+              confirmedRegime == 1 ? color.new(color.yellow, 88) :
+              confirmedRegime == 2 ? color.new(color.green,  88) :
+              confirmedRegime == 3 ? color.new(color.red,    88) :
+              confirmedRegime == 4 ? color.new(color.orange, 85) : na
+
+regimeColorSolid = confirmedRegime == 0 ? color.gray   :
+                   confirmedRegime == 1 ? color.yellow :
+                   confirmedRegime == 2 ? color.green  :
+                   confirmedRegime == 3 ? color.red    :
+                   confirmedRegime == 4 ? color.orange : color.white
+
+// =============================================================================
+// VISUAL — BACKGROUND TINT
+// =============================================================================
+bgcolor(showBackground ? regimeColor : na, title = "Regime Background")
+
+// =============================================================================
+// VISUAL — INFO PANEL (table)
+// =============================================================================
+panelPos = panelLocation == "Top Right"    ? position.top_right    :
+           panelLocation == "Top Left"     ? position.top_left     :
+           panelLocation == "Bottom Right" ? position.bottom_right :
+                                             position.bottom_left
+
+var table panel = table.new(panelPos, 2, 6, border_width = 1)
+if showPanel and barstate.islast
+    table.clear(panel, 0, 0, 1, 5)
+    table.cell(panel, 0, 0, "ARC",          bgcolor = color.new(color.black, 20), text_color = color.white, text_size = size.normal)
+    table.cell(panel, 1, 0, "TheAlgoTrdr",  bgcolor = color.new(color.black, 20), text_color = color.new(color.white, 30), text_size = size.small)
+
+    table.cell(panel, 0, 1, "Regime",       text_color = color.silver, text_size = size.small)
+    table.cell(panel, 1, 1, regimeName,     text_color = regimeColorSolid, text_size = size.small)
+
+    table.cell(panel, 0, 2, "Strength",     text_color = color.silver, text_size = size.small)
+    table.cell(panel, 1, 2, strength,       text_color = color.white,  text_size = size.small)
+
+    table.cell(panel, 0, 3, "Bias",         text_color = color.silver, text_size = size.small)
+    table.cell(panel, 1, 3, regimeBias,     text_color = color.white,  text_size = size.small)
+
+    table.cell(panel, 0, 4, "Duration",     text_color = color.silver, text_size = size.small)
+    table.cell(panel, 1, 4, str.tostring(regimeDuration) + " bars", text_color = color.white, text_size = size.small)
+
+    table.cell(panel, 0, 5, "Approach",     text_color = color.silver, text_size = size.small)
+    table.cell(panel, 1, 5, regimeApproach, text_color = color.white,  text_size = size.small)
+
+// =============================================================================
+// VISUAL — RANGE BOXES (only drawn while regime == Range-Bound)
+// =============================================================================
+var box rangeBox = na
+if showRangeBoxes
+    if confirmedRegime == 1
+        if na(rangeBox)
+            rangeBox := box.new(left = regimeStartBar, top = rangeHigh,
+                 right = bar_index, bottom = rangeLow,
+                 border_color = color.new(color.yellow, 30),
+                 bgcolor = color.new(color.yellow, 92), border_width = 1)
+        else
+            box.set_right(rangeBox, bar_index)
+            box.set_top(rangeBox, rangeHigh)
+            box.set_bottom(rangeBox, rangeLow)
+    else
+        // Regime left range — freeze the box where it ended
+        if not na(rangeBox)
+            rangeBox := na
+
+// =============================================================================
+// ALERTS — fire on regime confirmation
+// =============================================================================
+regimeChanged = confirmedRegime != confirmedRegime[1]
+
+if regimeChanged
+    if alertOnAnyChange
+        alert("ARC: Regime changed to " + regimeName + " (" + strength + ")", alert.freq_once_per_bar_close)
+    if alertOnTrendUp   and confirmedRegime == 2
+        alert("ARC: Entered Strong Trend Up (" + strength + ")", alert.freq_once_per_bar_close)
+    if alertOnTrendDown and confirmedRegime == 3
+        alert("ARC: Entered Strong Trend Down (" + strength + ")", alert.freq_once_per_bar_close)
+    if alertOnExpansion and confirmedRegime == 4
+        alert("ARC: Entered Volatility Expansion (" + strength + ")", alert.freq_once_per_bar_close)
+    if alertOnDead      and confirmedRegime == 0
+        alert("ARC: Entered Dead / Low Activity zone — stand aside", alert.freq_once_per_bar_close)

@@ -46,7 +46,7 @@ Once the code is provided, audit against all of the following:
 - [ ] Are there any hardcoded values that should be inputs?
 
 ### Platform-Specific (Pine Script)
-- [ ] Is the script using Pine Script v5?
+- [ ] Is the script using Pine Script v6?
 - [ ] Are alerts configured correctly if required?
 - [ ] Is repainting behaviour documented and intentional?
 - [ ] Are `request.security()` calls used correctly to avoid lookahead?
