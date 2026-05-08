@@ -83,9 +83,42 @@ Always ensure delivered code is clean, protected where appropriate, and accompan
 
 ## Repository Structure (Expected)
 
-- `tradingview/indicators/` - Pine Script indicators
-- `tradingview/strategies/` - Pine Script strategies
-- `metatrader5/indicators/` - MQL5 custom indicators
-- `metatrader5/experts/` - MQL5 Expert Advisors
-- `docs/` - strategy notes, setup guides, and client documentation
-- `backtests/` - exported test reports, screenshots, and validation notes
+```text
+/
+|-- AGENTS.md
+|-- CLAUDE.md
+|-- README.md
+|-- tradingview/
+|   |-- indicators/
+|   `-- strategies/
+|-- metatrader5/
+|   |-- indicators/
+|   `-- experts/
+|-- python/
+|   |-- backtests/
+|   `-- ai/
+|-- web/
+`-- docs/
+```
+
+---
+
+## Key Commands
+
+> Update this section as the project grows.
+
+```bash
+# Python environment
+python -m pytest                 # Run tests
+pip install -r requirements.txt  # Install dependencies
+```
+
+---
+
+## Notes for Claude
+
+- Always ask which platform (TradingView or MT5) and which market a system targets before writing code
+- When generating Pine Script, default to **Pine Script v5**
+- When generating MQL5, follow **MQL5 best practices** for EA structure (OnInit, OnTick, OnDeinit)
+- Treat all strategy logic as proprietary - do not store or reference client-specific logic outside this repo
+- When in doubt about a destructive action, **ask first**
