@@ -24,7 +24,7 @@ Ask the user the following questions one at a time before writing any code:
   - MT5 Indicator → `metatrader5/indicators/`
   - MT5 Expert Advisor → `metatrader5/experts/`
 
-- Use **Pine Script v5** for all TradingView work
+- Use **Pine Script v6** for all TradingView work
 - Use **MQL5 best practices** for all MT5 work (OnInit, OnTick, OnDeinit structure)
 - Code must be **performance optimised** and **client-ready**
 - Add **clear comments** on all trading logic — every signal, entry, exit, and risk rule
