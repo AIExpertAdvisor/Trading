@@ -82,3 +82,41 @@ Always ensure delivered code is clean, protected where appropriate, and accompan
 
 ## Repository Structure (Expected)
 
+```
+/
+├── CLAUDE.md
+├── README.md
+├── tradingview/
+│   ├── indicators/
+│   └── strategies/
+├── metatrader5/
+│   ├── indicators/
+│   └── experts/
+├── python/
+│   ├── backtests/
+│   └── ai/
+├── web/
+└── docs/
+```
+
+---
+
+## Key Commands
+
+> Update this section as the project grows.
+
+```bash
+# Python environment
+python -m pytest              # Run tests
+pip install -r requirements.txt  # Install dependencies
+```
+
+---
+
+## Notes for Claude
+
+- Always ask which platform (TradingView or MT5) and which market a system targets before writing code
+- When generating Pine Script, default to **Pine Script v5**
+- When generating MQL5, follow **MQL5 best practices** for EA structure (OnInit, OnTick, OnDeinit)
+- Treat all strategy logic as proprietary — do not store or reference client-specific logic outside this repo
+- When in doubt about a destructive action, **ask first**
