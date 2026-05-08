@@ -50,5 +50,4 @@ When helping with this repo, prefer outputs that include:
 │   └── ai/
 ├── web/
 └── docs/
-
-
+```
