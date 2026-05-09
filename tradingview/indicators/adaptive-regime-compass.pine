@@ -52,7 +52,6 @@ alertOnDead      = input.bool(false, "Alert: Dead / Low Activity",   group = "Al
 // =============================================================================
 // SENSITIVITY-DRIVEN THRESHOLDS
 // =============================================================================
-// Each preset shifts the thresholds to make the engine more or less reactive.
 adxThreshold      = sensitivity == "Conservative" ? 30.0 : sensitivity == "Aggressive" ? 18.0 : 25.0
 volExpandPct      = sensitivity == "Conservative" ? 90.0 : sensitivity == "Aggressive" ? 70.0 : 80.0
 volDeadPct        = sensitivity == "Conservative" ? 15.0 : sensitivity == "Aggressive" ? 25.0 : 20.0
@@ -89,14 +88,12 @@ rangeLow   = ta.lowest(low,  rangeLookback)
 rangeMid   = (rangeHigh + rangeLow) / 2.0
 rangeWidth = rangeHigh - rangeLow
 
-// Count how many of the recent bars closed inside the established range.
 inRangeCount = 0
 for i = 0 to rangeLookback - 1
     if close[i] <= rangeHigh and close[i] >= rangeLow
         inRangeCount += 1
 inRangePct = (inRangeCount / rangeLookback) * 100.0
 
-// Bollinger Band Width as confirmation — low BBW supports a ranging read.
 [bbMid, bbUp, bbLo] = ta.bb(close, 20, 2.0)
 bbWidth    = (bbUp - bbLo) / bbMid * 100.0
 bbWidthPct = ta.percentrank(bbWidth, volLookback)
@@ -106,8 +103,6 @@ isRanging = inRangePct >= rangePctThreshold and bbWidthPct < 60.0
 // =============================================================================
 // FACTOR 4 — ACTIVITY LEVEL (FX-safe ATR-based compression + drift fallback)
 // =============================================================================
-// Avoids relying on volume since FX tick volume is unreliable.
-// Dead = low ATR percentile AND very little net directional drift over the lookback.
 priceDrift   = math.abs(close - close[rangeLookback]) / atr14
 isDead       = isVolDead and priceDrift < 1.0
 
@@ -116,17 +111,10 @@ isDead       = isVolDead and priceDrift < 1.0
 // =============================================================================
 // 0 = Dead, 1 = Range, 2 = Trend Up, 3 = Trend Down, 4 = Expansion
 var int prevConfirmed = 1
-rawRegime = isDead       ? 0 :
-            isExpansion  ? 4 :
-            isTrendUp    ? 2 :
-            isTrendDown  ? 3 :
-            isRanging    ? 1 : prevConfirmed
+rawRegime = isDead ? 0 : isExpansion ? 4 : isTrendUp ? 2 : isTrendDown ? 3 : isRanging ? 1 : prevConfirmed
 
 // =============================================================================
 // REGIME CONFIRMATION LOGIC
-// -----------------------------------------------------------------------------
-// Require N consecutive bars meeting a new regime before flipping.
-// Prevents flip-flopping near threshold boundaries.
 // =============================================================================
 var int confirmedRegime = 1
 var int candidateRegime = 1
@@ -153,13 +141,10 @@ regimeDuration = bar_index - regimeStartBar
 
 // =============================================================================
 // REGIME STRENGTH (Weak / Moderate / Strong)
-// -----------------------------------------------------------------------------
-// Honest 3-tier label based on how comfortably the conditions are met.
 // =============================================================================
 strength = "Moderate"
 if confirmedRegime == 2 or confirmedRegime == 3
-    strength := adxValue >= adxThreshold + 10 ? "Strong" :
-                adxValue >= adxThreshold + 3  ? "Moderate" : "Weak"
+    strength := adxValue >= adxThreshold + 10 ? "Strong" : adxValue >= adxThreshold + 3 ? "Moderate" : "Weak"
 else if confirmedRegime == 4
     strength := atrPct >= 95 ? "Strong" : atrPct >= 85 ? "Moderate" : "Weak"
 else if confirmedRegime == 1
@@ -250,7 +235,6 @@ if showRangeBoxes
             box.set_top(rangeBox, rangeHigh)
             box.set_bottom(rangeBox, rangeLow)
     else
-        // Regime left range — freeze the box where it ended
         if not na(rangeBox)
             rangeBox := na
 
